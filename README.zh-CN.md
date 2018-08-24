@@ -1,4 +1,4 @@
-简体中文 | [English](https://github.com/Zilean/iboy)
+简体中文 | [English](https://github.com/sosout/iboy)
 
 # iboy ![download](https://img.shields.io/npm/dt/iboy.svg) ![npm-version](https://img.shields.io/npm/v/iboy.svg) ![license](https://img.shields.io/npm/l/iboy.svg)
 
