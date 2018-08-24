@@ -1,0 +1,11 @@
+#!/usr/bin/env node
+
+const program = require('commander');
+const pkg = require('../package.json');
+
+program
+    .version(pkg.version)
+    .usage('<command> [options]')
+    .command('init', 'generate a new project from a template')
+    .command('token', 'set auth token to get a higher rate limit of api requests')
+    .parse(process.argv);

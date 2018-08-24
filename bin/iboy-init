@@ -1,0 +1,233 @@
+#!/usr/bin/env node
+
+const path = require('path');
+const os = require('os');
+
+// 从仓库下载并提取git存储库（GitHub，GitLab，Bitbucket）。
+const download = require('download-git-repo');
+// 主要用于创建子命令和切割命令行参数并执行
+const program = require('commander');
+// 检查文件是否存在
+const exists = require('fs').existsSync;
+const rm = require('rimraf').sync;
+const chalk = require('chalk');
+const inquirer = require('inquirer');
+const uuidV1 = require('uuid/v1');
+const ora = require('ora');
+const shell = require('shelljs');
+
+const logger = require('../lib/logger');
+const checkRepos = require('../lib/check-repos');
+const generate = require('../lib/generate');
+const utils = require('../lib/utils');
+const checkVersion = require('../lib/check-version');
+
+/**
+ * Usage.
+ */
+
+program
+    .usage('<template-name> [project-name]')
+    .option('-c, --clone', 'use git clone')
+    .option('-o, --origin', 'set git remote origin');
+
+/**
+ * Hellp.
+ */
+
+program.on('--help', function() {
+    console.log('  Examples:');
+    console.log();
+    console.log(chalk.gray('    # create a new project with an template from github.'));
+    console.log('    $ iboy init Zilean/m-vcli my-project');
+    console.log();
+    console.log(chalk.gray('    $ create a new project with an template from designated github.'));
+    console.log('    $ iboy init Zilean/m-vcli my-project -o git@github.com:xx/xxxx.git');
+    console.log();
+});
+
+function help() {
+    // 解析命令行参数 argv
+    program.parse(process.argv);
+    if (program.args.length < 1) {
+        return program.help();
+    }
+}
+
+help();
+
+/**
+ * Padding
+ */
+
+console.log();
+process.on('exit', () => console.log());
+
+/**
+ * Setting.
+ */
+
+// template: Zilean/m-vcli
+let template = program.args[0];
+// projectName: my-project
+let projectDirName = program.args[1];
+
+if(!projectDirName || /^\w:\/?$/.test(projectDirName)) {
+    projectDirName = '.';
+}
+
+const origin = program.args[2];
+const projectName = projectDirName === '.' ? path.relative('../', process.cwd()) : projectDirName;
+const projectDirPath = path.resolve(projectDirName || '.');
+const clone = program.clone || false;
+const hasSlash = template.indexOf('/') > -1;
+const preProjectName = projectName;
+
+if (!hasSlash) {
+    return program.help();
+}
+
+function setOrigin() {
+    try {
+        shell.cd(projectDirPath);
+        shell.exec(`git init`, { async: false });
+        shell.exec(`git remote add origin ${origin}`, { async: false });
+        console.log(chalk.green(`${projectName} is related to remote repo: ${origin}`));
+    } catch (e) {
+        console.log(chalk.red(`set git remote origin faild: ${e.message}`))
+    }
+}
+
+if (utils.isExist(projectDirPath)) {
+    inquirer.prompt([{
+        type: 'confirm',
+        message: projectDirName === '.'
+            ? 'Generate project in current directory?'
+            : 'Target directory exists. Continue?',
+        name: 'ok'
+    }]).then((answers) => {
+        if (answers.ok) {
+            console.log();
+            runTask();
+        }
+    })
+} else {
+    // convert projectName(eg: xxx/, xxx/sss, /xxx/sss, c:/xxx/sss) to xxx
+    const normalizeName = '';
+    const index = projectName.indexOf('/');
+
+    if(projectDirName.startsWith('/') || /^\w:/.test(projectDirName)) {
+        normalizeName = projectName.substr(index).split('/')[0] || projectName.substr(index).split('/')[1];
+        normalizeName = normalizeName ? normalizeName : 'demo';
+    } else if(index >= 0) {
+        normalizeName = projectName.split('/')[0];
+    }
+
+    if(normalizeName && normalizeName !== projectName){
+        inquirer.prompt([{
+            type: 'confirm',
+            message: `Your project's name will be created as ${normalizeName}`,
+            name: 'ok'
+        }]).then((answers) => {
+            if(answers.ok){
+                console.log();
+                projectName = normalizeName;
+                runTask();
+            }
+            return;
+        });
+    } else {
+        runTask();
+    }
+}
+
+function runTask(){
+    const isLocalTemplate = utils.isLocalTemplate(template);
+
+    if(isLocalTemplate) {
+        const templatePath = template.startsWith('/') || /^\w:/.test(template)
+            ? template : path.normalize(path.join(process.cwd(), template));
+
+        if(utils.isExist(templatePath)){
+            console.success(`Template is from ${templatePath}`);
+            console.log();
+
+            generate(projectName,templatePath,projectDirPath, (err,msg = "") => {
+                if(err) {
+                    console.error(chalk.red(`Generated error: ${err.message.trim()}`));
+                }
+
+                if(origin && /\.git$/.test(origin)){
+                    setOrigin();
+                }
+
+                if(msg) {
+                    const re = /{{[^{}]+}}/g;
+                    console.log('\n' + msg.replace(re,projectName).split(/\r?\n/g).map(function (line) {
+                            return '   ' + line
+                        }).join('\n'));
+                }
+            });
+        } else {
+            console.log();
+            console.error(chalk.red(`Local template ${template} not found.`));
+        }
+    } else  {
+        const arr = template.split('/');
+
+        if(arr.length < 2 || !arr[0] || !arr[1]){
+            return program.help();
+        }
+
+        console.log();
+        console.log(chalk.yellow(`Local template ${template} not found. Will check it from github.`));
+        console.log();
+
+        // convert template path to xxx/xxx
+        template = template.split(path.sep).slice(0, 2).join('/');
+        // check repo from github.com
+        checkVersion(() => {
+            checkRepos(template, downloadAndGenerate);
+        });
+    }
+}
+
+/**
+ * Download a generate from a template repo.
+ *
+ * @param {String} template
+ */
+
+function downloadAndGenerate (template){
+    const tmp = os.tmpdir() + '/iboy-template-' + uuidV1();
+    const spinner = ora({
+        text: `start downloading template: ${template}`,
+        color: "blue"
+    }).start();
+    if (exists(tmp)) rm(tmp);
+    download(template, tmp, { clone: clone }, (err) => {
+        spinner.stop();
+        if (err) logger.fatal('Failed to download repo ' + template + ': ' + err.message.trim())
+        
+        generate(projectName, tmp, projectDirPath, (err, msg="") => {
+            if(err) {
+                console.error(chalk.red(`Generated error: ${err.message.trim()}`));
+            }
+
+            if (err) logger.fatal(err);
+            console.log();
+            logger.success('Generated "%s".', projectName);
+
+            if(origin && /\.git$/.test(origin)) {
+                setOrigin();
+            }
+
+            if(msg) {
+                const re = /{{[^{}]+}}/g;
+                console.log('\n' + msg.replace(re, preProjectName).split(/\r?\n/g).map(function (line) {
+                        return '   ' + line
+                    }).join('\n'));
+            }
+        });
+    });
+}
