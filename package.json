@@ -19,7 +19,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Zilean/iboy.git"
+    "url": "git+https://github.com/sosout/iboy.git"
   },
   "keywords": [
     "iboy",
@@ -31,9 +31,9 @@
   "author": "weich",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/Zilean/iboy/issues"
+    "url": "https://github.com/sosout/iboy/issues"
   },
-  "homepage": "https://github.com/Zilean/iboy#readme",
+  "homepage": "https://github.com/sosout/iboy#readme",
   "dependencies": {
     "axios": "^0.18.0",
     "chalk": "^2.4.1",
